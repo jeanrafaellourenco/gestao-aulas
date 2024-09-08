@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Aulas - Beta</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .draggable {
+            cursor: move;
+            padding: 5px;
+            margin: 5px;
+            border-radius: 4px;
+            color: rgb(0, 0, 0);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .editable {
+            cursor: text;
+            outline: none;
+            border: none;
+        }
+
+        .edit-mode .draggable {
+            cursor: text;
+        }
+
+        .blocked {
+            pointer-events: none;
+        }
+
+        .btn-group {
+            margin-right: 10px;
+        }
+
+        .remove-class {
+            color: red;
+            cursor: pointer;
+        }
+
+        /* Estilização das cores dos professores */
+        .professor-1 {
+            background-color: #ff7f50;
+        }
+
+        .professor-2 {
+            background-color: #4682b4;
+        }
+
+        .professor-3 {
+            background-color: #32cd32;
+        }
+
+        .professor-4 {
+            background-color: #cfd21e;
+        }
+
+        .professor-5 {
+            background-color: #8a2be2;
+        }
+
+        .professor-6 {
+            background-color: #d8bfd8;
+        }
+
+        .professor-7 {
+            background-color: #cd5c5c;
+        }
+
+        .professor-8 {
+            background-color: #ff47ff;
+        }
+
+        /* Ocultar botões ao imprimir */
+        @media print {
+            .btn, .btn-group, .remove-class {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container mt-4">
+        <h2>Gestão de Aulas - Beta</h2>
+        <button class="btn btn-success print-button mb-3" onclick="window.print()">Imprimir</button>
+        <div id="schedule-container"></div>
+    </div>
+
+    <script>
+        const DB_NAME = 'GestaoAulasDB';
+        const DB_VERSION = 1;
+        let db;
+        let unsavedChanges = false;
+
+        // Inicializa o IndexedDB
+        function initDB() {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+            request.onupgradeneeded = (event) => {
+                db = event.target.result;
+                const store = db.createObjectStore('schedule', { keyPath: 'day' });
+                store.transaction.oncomplete = () => console.log('IndexedDB initialized');
+            };
+
+            request.onsuccess = (event) => {
+                db = event.target.result;
+                loadSchedule();
+            };
+
+            request.onerror = (event) => {
+                console.error('Erro ao abrir o IndexedDB:', event.target.errorCode);
+            };
+        }
+
+        // Salva o cronograma no IndexedDB
+        function saveSchedule() {
+            const transaction = db.transaction(['schedule'], 'readwrite');
+            const store = transaction.objectStore('schedule');
+
+            daysOfWeek.forEach(day => {
+                const dayDiv = document.querySelector(`h4[data-day="${day}"]`).parentElement;
+                const table = dayDiv.querySelector('table').outerHTML;
+                const isBlocked = !dayDiv.classList.contains('edit-mode');
+
+                const scheduleData = {
+                    day: day,
+                    scheduleHTML: table,
+                    isBlocked: isBlocked
+                };
+
+                store.put(scheduleData);
+            });
+
+            transaction.oncomplete = () => {
+                console.log('Cronograma salvo com sucesso.');
+                unsavedChanges = false;
+            };
+            transaction.onerror = () => console.error('Erro ao salvar cronograma.');
+        }
+
+        // Carrega o cronograma do IndexedDB
+        function loadSchedule() {
+            const transaction = db.transaction(['schedule'], 'readonly');
+            const store = transaction.objectStore('schedule');
+
+            daysOfWeek.forEach(day => {
+                const request = store.get(day);
+
+                request.onsuccess = (event) => {
+                    const data = event.target.result;
+                    if (data) {
+                        const dayDiv = document.querySelector(`h4[data-day="${day}"]`).parentElement;
+                        dayDiv.querySelector('table').outerHTML = data.scheduleHTML;
+
+                        // Restaurar o estado de bloqueio
+                        if (data.isBlocked) {
+                            toggleEditMode(dayDiv, false);
+                        }
+
+                        // Reaplicar eventos de exclusão de aulas e arrastar e soltar
+                        applyRemoveClassEvents(dayDiv);
+                        addDragAndDropListeners(dayDiv);
+                    }
+                };
+
+                request.onerror = () => console.error(`Erro ao carregar cronograma de ${day}`);
+            });
+        }
+
+        const daysOfWeek = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"];
+        let classCounter = {}; // Contador para as aulas
+
+        function generateSchedule() {
+            const container = document.getElementById('schedule-container');
+
+            daysOfWeek.forEach(day => {
+                const dayDiv = document.createElement('div');
+                dayDiv.classList.add('mt-3');
+
+                const dayHeader = document.createElement('h4');
+                dayHeader.innerText = day;
+                dayHeader.setAttribute('data-day', day);
+                dayDiv.appendChild(dayHeader);
+
+                const btnGroup = document.createElement('div');
+                btnGroup.classList.add('btn-group');
+
+                const addButton = document.createElement('button');
+                addButton.classList.add('btn', 'btn-primary', 'mb-2');
+                addButton.innerText = `Adicionar Aula`;
+                addButton.addEventListener('click', () => addNewClass(dayDiv, day));
+                btnGroup.appendChild(addButton);
+
+                const intervalButton = document.createElement('button');
+                intervalButton.classList.add('btn', 'btn-secondary', 'mb-2', 'ml-2');
+                intervalButton.innerText = `Adicionar Intervalo`;
+                intervalButton.addEventListener('click', () => addInterval(dayDiv, day));
+                btnGroup.appendChild(intervalButton);
+
+                const editButton = document.createElement('button');
+                editButton.classList.add('btn', 'btn-success', 'mb-2', 'ml-2');
+                editButton.innerText = `Editar`;
+                let editMode = false;
+                editButton.addEventListener('click', () => {
+                    editMode = !editMode;
+                    toggleEditMode(dayDiv, editMode);
+                    editButton.innerText = editMode ? 'Salvar' : 'Editar';
+                    unsavedChanges = true;
+                });
+                btnGroup.appendChild(editButton);
+
+                dayDiv.appendChild(btnGroup);
+
+                const table = document.createElement('table');
+                table.classList.add('table', 'table-bordered', 'text-center');
+
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                const timeCell = document.createElement('th');
+                timeCell.innerText = 'Horário';
+                timeCell.classList.add('editable');
+                timeCell.contentEditable = true;
+                headerRow.appendChild(timeCell);
+
+                const turmas = ["Turma A", "Turma B", "Turma C", "Turma D", "Turma E", "Turma F", "Turma G", "Turma H"];
+                turmas.forEach(turma => {
+                    const th = document.createElement('th');
+                    th.classList.add('editable');
+                    th.contentEditable = true;
+                    th.innerText = turma;
+                    headerRow.appendChild(th);
+                });
+
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+
+                const tbody = document.createElement('tbody');
+                table.appendChild(tbody);
+                dayDiv.appendChild(table);
+
+                container.appendChild(dayDiv);
+
+                classCounter[day] = 1;
+            });
+        }
+
+        // Função para adicionar uma nova aula
+        function addNewClass(dayDiv, day) {
+            if (!dayDiv.classList.contains('edit-mode')) return; // Impedir adicionar aulas se não estiver no modo de edição
+
+            const table = dayDiv.querySelector('table tbody');
+
+            let existingClasses = Array.from(table.querySelectorAll('tr')).filter(row => {
+                const firstCell = row.querySelector('td:first-child');
+                return firstCell && firstCell.innerText.includes('ª aula');
+            }).length;
+
+            let nextClassNumber = existingClasses + 1;
+
+            const row = document.createElement('tr');
+
+            const timeCell = document.createElement('td');
+            timeCell.classList.add('editable');
+            timeCell.contentEditable = true;
+            timeCell.innerText = `${nextClassNumber}ª aula`;
+            row.appendChild(timeCell);
+
+            for (let i = 0; i < 8; i++) {
+                const td = document.createElement('td');
+                td.classList.add('droppable');
+                const divProfessor = document.createElement('div');
+                divProfessor.classList.add('draggable', 'editable');
+                divProfessor.innerText = 'Professor';
+
+                const colorClass = `professor-${(i % 8) + 1}`;
+                divProfessor.classList.add(colorClass);
+
+                td.appendChild(divProfessor);
+                row.appendChild(td);
+            }
+
+            const removeCell = document.createElement('td');
+            removeCell.innerHTML = '<span class="remove-class">X</span>';
+            removeCell.querySelector('.remove-class').addEventListener('click', () => {
+                if (dayDiv.classList.contains('edit-mode')) { // Só permitir remover se estiver no modo de edição
+                    table.removeChild(row);
+                    adjustClassNumbers(table);
+                    saveSchedule();
+                }
+            });
+            row.appendChild(removeCell);
+
+            table.appendChild(row);
+            addDragAndDropListeners(dayDiv);
+            saveSchedule();
+        }
+
+        // Função para adicionar um intervalo
+        function addInterval(dayDiv, day) {
+            if (!dayDiv.classList.contains('edit-mode')) return; // Impedir adicionar intervalos se não estiver no modo de edição
+
+            const table = dayDiv.querySelector('table tbody');
+            const row = document.createElement('tr');
+            const intervalCell = document.createElement('td');
+            intervalCell.colSpan = 9;
+            intervalCell.classList.add('text-center', 'editable');
+            intervalCell.contentEditable = true;
+            intervalCell.innerText = `Intervalo`;
+
+            const removeCell = document.createElement('td');
+            removeCell.innerHTML = '<span class="remove-class">X</span>';
+            removeCell.querySelector('.remove-class').addEventListener('click', () => {
+                if (dayDiv.classList.contains('edit-mode')) { // Só permitir remover se estiver no modo de edição
+                    table.removeChild(row);
+                    saveSchedule();
+                }
+            });
+            row.appendChild(intervalCell);
+            row.appendChild(removeCell);
+
+            table.appendChild(row);
+            saveSchedule();
+        }
+
+        // Função para habilitar ou desabilitar edição e movimentação de elementos
+        function toggleEditMode(dayDiv, editMode) {
+            if (editMode) {
+                dayDiv.classList.add('edit-mode');
+                dayDiv.querySelectorAll('.draggable, .editable').forEach(item => {
+                    item.contentEditable = true;
+                    item.setAttribute('draggable', 'false');
+                });
+            } else {
+                dayDiv.classList.remove('edit-mode');
+                dayDiv.querySelectorAll('.draggable, .editable').forEach(item => {
+                    item.contentEditable = false;
+                    item.setAttribute('draggable', 'true');
+                });
+                addDragAndDropListeners(dayDiv);
+            }
+            saveSchedule();
+        }
+
+        // Adiciona funcionalidade de remoção de aulas
+        function applyRemoveClassEvents(dayDiv) {
+            dayDiv.querySelectorAll('.remove-class').forEach(removeBtn => {
+                removeBtn.addEventListener('click', () => {
+                    const row = removeBtn.closest('tr');
+                    const table = row.closest('tbody');
+                    if (dayDiv.classList.contains('edit-mode')) { // Só permitir remover se estiver no modo de edição
+                        row.parentElement.removeChild(row);
+                        adjustClassNumbers(table);
+                        saveSchedule();
+                    }
+                });
+            });
+        }
+
+        // Função para ajustar a numeração das aulas
+        function adjustClassNumbers(table) {
+            let count = 1;
+            table.querySelectorAll('tr').forEach(row => {
+                const timeCell = row.querySelector('td:first-child');
+                if (timeCell && timeCell.innerText.includes('ª aula')) {
+                    timeCell.innerText = `${count}ª aula`;
+                    count++;
+                }
+            });
+        }
+
+        // Função para adicionar os eventos de arrastar e soltar
+        function addDragAndDropListeners(dayDiv) {
+            dayDiv.querySelectorAll('.draggable').forEach(item => {
+                item.setAttribute('draggable', 'true');
+                item.addEventListener('dragstart', event => {
+                    draggedElement = event.target;
+                    event.dataTransfer.setData('text/html', event.target.outerHTML);
+                });
+            });
+
+            dayDiv.querySelectorAll('.droppable').forEach(cell => {
+                cell.addEventListener('dragover', event => {
+                    event.preventDefault();
+                });
+
+                cell.addEventListener('drop', event => {
+                    event.preventDefault();
+                    const dropTarget = event.target.closest('.droppable');
+                    if (draggedElement && dropTarget) {
+                        const sourceHTML = draggedElement.outerHTML;
+                        const targetHTML = dropTarget.innerHTML;
+
+                        draggedElement.parentNode.innerHTML = targetHTML;
+                        dropTarget.innerHTML = sourceHTML;
+
+                        addDragAndDropListeners(dayDiv);
+                        saveSchedule();
+                    }
+                });
+            });
+        }
+
+        // Auto salvamento a cada 30 segundos (parece não estar funcionando)
+        setInterval(() => {
+            if (unsavedChanges) {
+                saveSchedule();
+            }
+        }, 30000);
+
+        // Aviso ao sair da página se houver alterações não salvas ((parece não estar funcionando))
+        window.addEventListener('beforeunload', (event) => {
+            if (unsavedChanges) {
+                event.preventDefault();
+                event.returnValue = '';
+            }
+        });
+
+        generateSchedule();
+        window.onload = initDB;
+    </script>
+</body>
+
+</html>
