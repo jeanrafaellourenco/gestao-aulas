@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestão de Aulas - Beta</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .draggable {
             cursor: move;
@@ -42,35 +42,43 @@
 
         /* Estilização das cores dos professores */
         .professor-1 {
-            background-color: #ff7f50;
+            background-color: #CCCCFF;
         }
 
         .professor-2 {
-            background-color: #4682b4;
+            background-color: #91CF50;
         }
 
         .professor-3 {
-            background-color: #32cd32;
+            background-color: #FFFF00;
         }
 
         .professor-4 {
-            background-color: #cfd21e;
+            background-color: #FF3300;
         }
 
         .professor-5 {
-            background-color: #8a2be2;
+            background-color: #CC0099;
         }
 
         .professor-6 {
-            background-color: #d8bfd8;
+            background-color: #F69246;
         }
 
         .professor-7 {
-            background-color: #cd5c5c;
+            background-color: #6C2C9F;
         }
 
         .professor-8 {
-            background-color: #ff47ff;
+            background-color: #FF66CC;
+        }
+
+        .professor-9 {
+            background-color: #11DDF8;
+        }
+
+        .professor-10 {
+            background-color: #0099FF;
         }
 
         /* Ocultar botões ao imprimir */
@@ -78,6 +86,12 @@
             .btn, .btn-group, .remove-class {
                 display: none !important;
             }
+        }
+
+        /* Estilo para os seletores de cor */
+        .color-picker {
+            margin-left: 5px;
+            font-size: 12px;
         }
     </style>
 </head>
@@ -95,7 +109,6 @@
         let db;
         let unsavedChanges = false;
 
-        // Inicializa o IndexedDB
         function initDB() {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -115,7 +128,6 @@
             };
         }
 
-        // Salva o cronograma no IndexedDB
         function saveSchedule() {
             const transaction = db.transaction(['schedule'], 'readwrite');
             const store = transaction.objectStore('schedule');
@@ -141,7 +153,6 @@
             transaction.onerror = () => console.error('Erro ao salvar cronograma.');
         }
 
-        // Carrega o cronograma do IndexedDB
         function loadSchedule() {
             const transaction = db.transaction(['schedule'], 'readonly');
             const store = transaction.objectStore('schedule');
@@ -171,7 +182,8 @@
         }
 
         const daysOfWeek = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"];
-        let classCounter = {}; // Contador para as aulas
+        let classCounter = {};
+        let professorColors = ['professor-1', 'professor-2', 'professor-3', 'professor-4', 'professor-5', 'professor-6', 'professor-7', 'professor-8', 'professor-9', 'professor-10'];
 
         function generateSchedule() {
             const container = document.getElementById('schedule-container');
@@ -247,9 +259,8 @@
             });
         }
 
-        // Função para adicionar uma nova aula
         function addNewClass(dayDiv, day) {
-            if (!dayDiv.classList.contains('edit-mode')) return; // Impedir adicionar aulas se não estiver no modo de edição
+            if (!dayDiv.classList.contains('edit-mode')) return;
 
             const table = dayDiv.querySelector('table tbody');
 
@@ -274,9 +285,7 @@
                 const divProfessor = document.createElement('div');
                 divProfessor.classList.add('draggable', 'editable');
                 divProfessor.innerText = 'Professor';
-
-                const colorClass = `professor-${(i % 8) + 1}`;
-                divProfessor.classList.add(colorClass);
+                divProfessor.className += ` ${professorColors[i]}`;
 
                 td.appendChild(divProfessor);
                 row.appendChild(td);
@@ -285,7 +294,7 @@
             const removeCell = document.createElement('td');
             removeCell.innerHTML = '<span class="remove-class">X</span>';
             removeCell.querySelector('.remove-class').addEventListener('click', () => {
-                if (dayDiv.classList.contains('edit-mode')) { // Só permitir remover se estiver no modo de edição
+                if (dayDiv.classList.contains('edit-mode')) {
                     table.removeChild(row);
                     adjustClassNumbers(table);
                     saveSchedule();
@@ -298,9 +307,8 @@
             saveSchedule();
         }
 
-        // Função para adicionar um intervalo
         function addInterval(dayDiv, day) {
-            if (!dayDiv.classList.contains('edit-mode')) return; // Impedir adicionar intervalos se não estiver no modo de edição
+            if (!dayDiv.classList.contains('edit-mode')) return;
 
             const table = dayDiv.querySelector('table tbody');
             const row = document.createElement('tr');
@@ -313,7 +321,7 @@
             const removeCell = document.createElement('td');
             removeCell.innerHTML = '<span class="remove-class">X</span>';
             removeCell.querySelector('.remove-class').addEventListener('click', () => {
-                if (dayDiv.classList.contains('edit-mode')) { // Só permitir remover se estiver no modo de edição
+                if (dayDiv.classList.contains('edit-mode')) {
                     table.removeChild(row);
                     saveSchedule();
                 }
@@ -325,7 +333,6 @@
             saveSchedule();
         }
 
-        // Função para habilitar ou desabilitar edição e movimentação de elementos
         function toggleEditMode(dayDiv, editMode) {
             if (editMode) {
                 dayDiv.classList.add('edit-mode');
@@ -333,24 +340,67 @@
                     item.contentEditable = true;
                     item.setAttribute('draggable', 'false');
                 });
+
+                // Add color pickers to each professor's div
+                dayDiv.querySelectorAll('.droppable').forEach((cell, index) => {
+                    const professorDiv = cell.querySelector('.draggable'); // Get the professor div within the cell
+                    const colorPicker = generateColorPicker(professorDiv); // Pass the professor div to the function
+                    cell.appendChild(colorPicker);
+                });
             } else {
                 dayDiv.classList.remove('edit-mode');
                 dayDiv.querySelectorAll('.draggable, .editable').forEach(item => {
                     item.contentEditable = false;
                     item.setAttribute('draggable', 'true');
                 });
+
+                // Remove color pickers when exiting edit mode
+                dayDiv.querySelectorAll('.color-picker').forEach(picker => picker.remove());
+
                 addDragAndDropListeners(dayDiv);
             }
             saveSchedule();
         }
 
-        // Adiciona funcionalidade de remoção de aulas
+
+        function applyColorChange(event) {
+            const colorPicker = event.target;
+            const professorDiv = colorPicker.previousElementSibling;
+            professorDiv.className = `draggable editable ${colorPicker.value}`;
+            saveSchedule();
+        }
+
+        function generateColorPicker(professorDiv) {
+            const picker = document.createElement('select');
+            picker.classList.add('color-picker', 'mt-1');
+
+            const colorOptions = ['Light periwinkle', 'Leaf', 'Yellow', 'Red orange', 'Purpleish pink', 'Pastel orange', 'Purply', 'Purpleish pink', 'Aqua blue', 'Azure'];
+            professorColors.forEach((colorClass, i) => {
+                const option = document.createElement('option');
+                option.value = colorClass;
+                option.textContent = colorOptions[i];
+                picker.appendChild(option);
+            });
+
+            // Set the picker to the saved color class
+            const currentClass = professorDiv.classList.value.split(' ').find(cls => professorColors.includes(cls));
+            const selectedIndex = professorColors.indexOf(currentClass);
+            if (selectedIndex >= 0) {
+                picker.selectedIndex = selectedIndex;
+            }
+
+            picker.addEventListener('change', applyColorChange);
+
+            return picker;
+        }
+
+
         function applyRemoveClassEvents(dayDiv) {
             dayDiv.querySelectorAll('.remove-class').forEach(removeBtn => {
                 removeBtn.addEventListener('click', () => {
                     const row = removeBtn.closest('tr');
                     const table = row.closest('tbody');
-                    if (dayDiv.classList.contains('edit-mode')) { // Só permitir remover se estiver no modo de edição
+                    if (dayDiv.classList.contains('edit-mode')) {
                         row.parentElement.removeChild(row);
                         adjustClassNumbers(table);
                         saveSchedule();
@@ -359,7 +409,6 @@
             });
         }
 
-        // Função para ajustar a numeração das aulas
         function adjustClassNumbers(table) {
             let count = 1;
             table.querySelectorAll('tr').forEach(row => {
@@ -371,7 +420,6 @@
             });
         }
 
-        // Função para adicionar os eventos de arrastar e soltar
         function addDragAndDropListeners(dayDiv) {
             dayDiv.querySelectorAll('.draggable').forEach(item => {
                 item.setAttribute('draggable', 'true');
@@ -403,14 +451,14 @@
             });
         }
 
-        // Auto salvamento a cada 30 segundos (parece não estar funcionando)
+        // Auto salvamento a cada 30 segundos
         setInterval(() => {
             if (unsavedChanges) {
                 saveSchedule();
             }
         }, 30000);
 
-        // Aviso ao sair da página se houver alterações não salvas ((parece não estar funcionando))
+        // Aviso ao sair da página se houver alterações não salvas
         window.addEventListener('beforeunload', (event) => {
             if (unsavedChanges) {
                 event.preventDefault();
